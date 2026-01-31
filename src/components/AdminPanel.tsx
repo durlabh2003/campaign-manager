@@ -1,269 +1,164 @@
-'use client';
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { Trash2, UserPlus, Shield, AlertTriangle, Lock, CheckCircle2 } from 'lucide-react';
-
-// --- 1. Strict Type Definitions ---
-interface AppUser {
-  id: string;
-  name: string;
-  email: string;
-  contact_number: string;
-  role: string;
-  created_at: string;
-}
-
-// Union type for safe action handling
-type PendingAction = 
-  | { type: 'add'; payload: { name: string; email: string; role: string; contact_number: string; password: string } }
-  | { type: 'remove'; payload: string };
+import { supabase } from '../supabaseClient'; // Make sure this path points to your supabase file
 
 export default function AdminPanel() {
-  const [users, setUsers] = useState<AppUser[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  // --- STATE VARIABLES ---
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(''); // For adding new users
+  const [newPassword, setNewPassword] = useState(''); // For adding new users
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null);
 
-  // --- Security State ---
-  const [securityMode, setSecurityMode] = useState<'idle' | 'admin_pass' | 'tapinfi_otp'>('idle');
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [otp, setOtp] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
-  
-  // --- Form State ---
-  const [newUser, setNewUser] = useState({ name: '', email: '', contact_number: '', role: 'Staff', password: '' });
+  // --- CONFIGURATION ---
+  const MASTER_PASSWORD = "admin123"; // 🔴 CHANGE THIS TO YOUR SECRET PASSWORD
 
-  // Load Users
+  // --- CHECK LOGIN ON LOAD ---
   useEffect(() => {
-    const fetchUsers = async () => {
-      const { data } = await supabase
-        .from('app_users')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (data) setUsers(data as AppUser[]);
-    };
-    fetchUsers();
-  }, [refreshKey]);
-
-  // --- Step 1: Initiate Action ---
-  const initiateAdd = () => {
-    if (!newUser.name || !newUser.email || !newUser.password) {
-        alert('All fields (Name, Email, Password) are required');
-        return;
+    // Check if user already logged in previously
+    const loggedIn = localStorage.getItem('nexus_admin_logged_in');
+    if (loggedIn === 'true') {
+      setIsAdmin(true);
     }
-    setPendingAction({ type: 'add', payload: newUser });
-    setSecurityMode('admin_pass');
-  };
+  }, []);
 
-  const initiateRemove = (id: string) => {
-    setPendingAction({ type: 'remove', payload: id });
-    setSecurityMode('admin_pass');
-  };
-
-  // --- Step 2: Verify Master Password -> Trigger Email OTP ---
-  const handlePasswordSubmit = () => {
-    if (!adminPassword) return alert("Please enter the Master Admin Password");
-
-    // Generate 6-digit Code
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(newOtp);
-
-    // SIMULATION: In production, this would call your Email API
-    alert(`🚨 SECURITY VAULT\n\nTo: tapinfi@gmail.com\nAction: Authorization Request\n\nSECURE OTP: ${newOtp}`);
-    
-    setSecurityMode('tapinfi_otp');
-  };
-
-  // --- Step 3: Verify OTP -> Execute Database Change ---
-  const handleOtpSubmit = async () => {
-    if (otp !== generatedOtp) return alert("Invalid Security OTP");
-    if (!pendingAction) return;
-
-    if (pendingAction.type === 'add') {
-        const { error } = await supabase.from('app_users').insert(pendingAction.payload);
-        if (error) {
-            alert('Error adding user: ' + error.message);
-        } else {
-            setNewUser({ name: '', email: '', contact_number: '', role: 'Staff', password: '' });
-        }
-    } else if (pendingAction.type === 'remove') {
-        const { error } = await supabase.from('app_users').delete().eq('id', pendingAction.payload);
-        if (error) {
-             alert('Error removing user: ' + error.message);
-        }
+  // --- LOGIN FUNCTION (NO OTP) ---
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (password === MASTER_PASSWORD) {
+      setIsAdmin(true);
+      localStorage.setItem('nexus_admin_logged_in', 'true'); // Keep logged in
+    } else {
+      alert("❌ ACCESS DENIED: Incorrect Password");
     }
-
-    // Reset All Security States
-    setSecurityMode('idle');
-    setPendingAction(null);
-    setAdminPassword('');
-    setOtp('');
-    setRefreshKey(prev => prev + 1); // Trigger Refresh
   };
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-slate-200">
-      
-      {/* --- SECURITY VAULT MODAL (Overlay) --- */}
-      {securityMode !== 'idle' && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-            <div className="bg-slate-900 border border-red-500/50 p-8 rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in-95">
-                
-                {/* Header */}
-                <div className="flex items-center gap-3 text-red-500 mb-6 pb-4 border-b border-red-900/30">
-                    <Shield className="w-8 h-8" />
-                    <div>
-                        <h2 className="text-xl font-bold text-white">Security Vault</h2>
-                        <p className="text-xs text-red-400">Restricted Admin Action</p>
-                    </div>
-                </div>
-                
-                {/* Phase 1: Password */}
-                {securityMode === 'admin_pass' && (
-                    <div className="space-y-4">
-                        <div className="p-3 bg-red-950/30 rounded border border-red-900/50 flex gap-3">
-                            <Lock className="text-red-500 shrink-0" size={20} />
-                            <p className="text-sm text-slate-300">Enter Master Password to authorize this change.</p>
-                        </div>
-                        <input 
-                            type="password" 
-                            placeholder="Master Password" 
-                            autoFocus
-                            className="w-full p-4 bg-black border border-slate-700 rounded-lg text-white focus:border-red-500 outline-none transition-colors"
-                            value={adminPassword} 
-                            onChange={e => setAdminPassword(e.target.value)} 
-                        />
-                        <button 
-                            onClick={handlePasswordSubmit} 
-                            className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-2"
-                        >
-                            Verify Identity
-                        </button>
-                    </div>
-                )}
+  // --- LOGOUT FUNCTION ---
+  const handleLogout = () => {
+    setIsAdmin(false);
+    localStorage.removeItem('nexus_admin_logged_in');
+  };
 
-                {/* Phase 2: OTP */}
-                {securityMode === 'tapinfi_otp' && (
-                    <div className="space-y-6">
-                        <div className="text-center space-y-2">
-                            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-500/20 text-red-500 mb-2">
-                                <AlertTriangle size={24} />
-                            </div>
-                            <h3 className="text-lg font-bold text-white">Verification Required</h3>
-                            <p className="text-sm text-slate-400">Code sent to <b className="text-white">tapinfi@gmail.com</b></p>
-                        </div>
+  // --- ADD NEW USER FUNCTION ---
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
 
-                        <input 
-                            type="text" 
-                            placeholder="0 0 0 0 0 0" 
-                            maxLength={6}
-                            autoFocus
-                            className="w-full p-4 bg-black border border-slate-700 rounded-lg text-center text-2xl tracking-[0.5em] font-mono text-white focus:border-red-500 outline-none transition-colors"
-                            value={otp} 
-                            onChange={e => setOtp(e.target.value)} 
-                        />
-                        <button 
-                            onClick={handleOtpSubmit} 
-                            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg transition-all flex items-center justify-center gap-2"
-                        >
-                            <CheckCircle2 size={20}/> Confirm & Execute
-                        </button>
-                    </div>
-                )}
-                
-                <button 
-                    onClick={() => {
-                        setSecurityMode('idle');
-                        setPendingAction(null);
-                    }} 
-                    className="w-full text-slate-500 mt-6 text-sm hover:text-white transition-colors"
-                >
-                    Cancel Transaction
-                </button>
-            </div>
-        </div>
-      )}
+    try {
+      // This creates a user in Supabase
+      const { data, error } = await supabase.auth.signUp({
+        email: email,
+        password: newPassword,
+      });
 
-      {/* --- LEFT COLUMN: Add User Form --- */}
-      <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl h-fit">
-        <h3 className="font-bold text-lg mb-6 text-orange-400 flex items-center gap-2">
-            <UserPlus size={20}/> Add New User
-        </h3>
-        <div className="space-y-4">
+      if (error) throw error;
+
+      setMessage({ type: 'success', text: `✅ User ${email} created successfully!` });
+      setEmail('');
+      setNewPassword('');
+    } catch (error) {
+      setMessage({ type: 'error', text: `❌ Error: ${error.message}` });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- RENDER: LOGIN SCREEN (If not admin) ---
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
+        <div className="w-full max-w-md p-8 bg-gray-900 rounded-lg border border-gray-800 shadow-2xl">
+          <h2 className="text-2xl font-bold text-center mb-6 text-gray-100">Nexus Vault</h2>
+          
+          <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
-                <input className="w-full bg-slate-950 border border-slate-700 p-3 rounded text-white focus:border-orange-500/50 outline-none mt-1" 
-                   placeholder="John Doe" value={newUser.name} onChange={e => setNewUser({...newUser, name: e.target.value})} />
+              <label className="block text-sm font-medium text-gray-400 mb-1">Master Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full p-3 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
+                placeholder="Enter access code..."
+              />
             </div>
-            <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Email Address</label>
-                <input className="w-full bg-slate-950 border border-slate-700 p-3 rounded text-white focus:border-orange-500/50 outline-none mt-1" 
-                   placeholder="john@tapinfi.com" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
-            </div>
-            <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Initial Password</label>
-                <input className="w-full bg-slate-950 border border-slate-700 p-3 rounded text-white focus:border-orange-500/50 outline-none mt-1" 
-                   type="password" placeholder="••••••••" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
-            </div>
-            <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Role Permission</label>
-                <select className="w-full bg-slate-950 border border-slate-700 p-3 rounded text-white focus:border-orange-500/50 outline-none mt-1"
-                   value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
-                    <option value="Staff">Staff (Standard)</option>
-                    <option value="Admin">Admin (Full Access)</option>
-                </select>
-            </div>
-            <button onClick={initiateAdd} className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 rounded-lg transition-all shadow-lg shadow-orange-900/20 mt-2">
-                Secure Add User
+            
+            <button
+              type="submit"
+              className="w-full py-3 px-4 bg-white text-black font-bold rounded hover:bg-gray-200 transition-colors"
+            >
+              Unlock Vault
             </button>
+          </form>
+          
+          <p className="mt-4 text-xs text-center text-gray-600">
+            Authorized Personnel Only.
+          </p>
         </div>
       </div>
+    );
+  }
 
-      {/* --- RIGHT COLUMN: User List --- */}
-      <div className="md:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-xl">
-        <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-lg text-slate-200">Active Personnel</h3>
-            <span className="bg-slate-800 text-slate-400 text-xs px-3 py-1 rounded-full font-mono">{users.length} TOTAL</span>
+  // --- RENDER: ADMIN DASHBOARD (If admin) ---
+  return (
+    <div className="min-h-screen bg-black text-white p-6">
+      <div className="max-w-4xl mx-auto">
+        {/* HEADER */}
+        <div className="flex justify-between items-center mb-10 border-b border-gray-800 pb-4">
+          <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
+            NexusCampaign Admin
+          </h1>
+          <button 
+            onClick={handleLogout}
+            className="text-sm text-gray-400 hover:text-white underline"
+          >
+            Logout
+          </button>
         </div>
-        
-        <div className="space-y-3">
-            {users.map(u => (
-                <div key={u.id} className="flex items-center justify-between p-4 bg-slate-950 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors group">
-                    <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg
-                            ${u.role === 'Admin' ? 'bg-orange-900/30 text-orange-500' : 'bg-slate-800 text-slate-400'}`}>
-                            {u.name.charAt(0)}
-                        </div>
-                        <div>
-                            <div className="font-bold text-slate-200">{u.name}</div>
-                            <div className="text-xs text-slate-500 font-mono">{u.email}</div>
-                        </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-6">
-                        <span className={`px-3 py-1 rounded-md text-xs font-bold border
-                            ${u.role === 'Admin' 
-                                ? 'bg-orange-950/30 text-orange-400 border-orange-900/50' 
-                                : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
-                            {u.role.toUpperCase()}
-                        </span>
-                        
-                        <button 
-                            onClick={() => initiateRemove(u.id)} 
-                            className="p-2 text-slate-600 hover:text-red-500 hover:bg-red-950/30 rounded transition-all"
-                            title="Remove User"
-                        >
-                            <Trash2 size={18}/>
-                        </button>
-                    </div>
-                </div>
-            ))}
+
+        {/* CREATE USER CARD */}
+        <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 mb-8">
+          <h3 className="text-xl font-semibold mb-4 text-blue-400">Add New Team Member</h3>
+          
+          <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              type="email"
+              placeholder="Employee Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="p-3 bg-gray-800 border border-gray-700 rounded text-white"
+              required
+            />
+            <input
+              type="password"
+              placeholder="Assign Password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="p-3 bg-gray-800 border border-gray-700 rounded text-white"
+              required
+            />
             
-            {users.length === 0 && (
-                <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-800 rounded-lg">
-                    No users found in the system.
-                </div>
-            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="md:col-span-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded transition-all disabled:opacity-50"
+            >
+              {loading ? "Creating User..." : "+ Add User to Database"}
+            </button>
+          </form>
+
+          {/* STATUS MESSAGES */}
+          {message && (
+            <div className={`mt-4 p-3 rounded text-sm ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+              {message.text}
+            </div>
+          )}
+        </div>
+
+        {/* SECTION FOR LIST OF USERS (Placeholder) */}
+        <div className="bg-gray-900 p-6 rounded-lg border border-gray-800">
+          <h3 className="text-xl font-semibold mb-4 text-gray-300">Database Status</h3>
+          <p className="text-gray-500">System is active and accepting connections.</p>
         </div>
       </div>
     </div>
