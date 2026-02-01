@@ -1,159 +1,137 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
-import { 
-  LayoutDashboard, Database, Zap, Search, 
-  UploadCloud, History, Shield, Terminal, LogOut, User
-} from 'lucide-react';
 
-// --- Import All Components ---
-import SmartUploader from '../components/SmartUploader';
-import DataRequest from '../components/DataRequest';
-import SlotManager from '../components/SlotManager';
-import AdminPanel from '../components/AdminPanel';
-import GlobalSearch from '../components/GlobalSearch';
-import LoginGate from '../components/LoginGate'; // <--- The Security Gate
+import { useState } from 'react';
+import { supabase } from '../lib/supabase'; 
+import { useRouter } from 'next/navigation';
 
-// Define the User type so TypeScript is happy
-interface CurrentUser {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
+// 🟢 1. Define the Prop Type here
+interface LoginProps {
+  onLoginSuccess?: (user: any) => void; 
 }
 
-export default function Page() {
-  // --- Auth State ---
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+// 🟢 2. Accept the prop in the function argument
+export default function Login({ onLoginSuccess }: LoginProps) {
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [message, setMessage] = useState<{ type: string; text: string } | null>(null);
+  
+  const router = useRouter(); 
 
-  // --- Dashboard State ---
-  const [activeModule, setActiveModule] = useState('request');
-  const [stats, setStats] = useState({ total: 0, used: 0, unused: 0 });
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
 
-  // Fetch Live Stats (Only runs if user is logged in)
-  const fetchStats = useCallback(async () => {
-    const { data } = await supabase.from('contact_stats').select('*').single();
-    if (data) setStats({ 
-        total: data.total_contacts, 
-        used: data.used_contacts, 
-        unused: data.unused_contacts 
-    });
-  }, []);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password,
+      });
 
-  useEffect(() => { 
-    if(currentUser) void fetchStats(); 
-  }, [currentUser, fetchStats]);
+      if (error) throw error;
 
-  // --- LEVEL 1 SECURITY: THE LOGIN GATE ---
-  // If no user is logged in, show the Login Screen
-  if (!currentUser) {
-    return (
-      <LoginGate 
-        onLoginSuccess={(user) => setCurrentUser(user)} 
-      />
-    );
-  }
+      console.log("Login Successful:", data);
+      
+      // 🟢 3. If parent provided a callback, use it. Otherwise, redirect.
+      if (onLoginSuccess) {
+        onLoginSuccess(data.user);
+      } else {
+        router.push('/dashboard');
+      }
 
-  // --- LEVEL 2: THE DASHBOARD (Authorized Access) ---
-  const modules = [
-    { id: 'request', label: 'Request Data', icon: Zap },
-    { id: 'add', label: 'Add Data', icon: UploadCloud },
-    { id: 'slots', label: 'Slots Info', icon: History },
-    { id: 'admin', label: 'Admin Panel', icon: Shield },
-    { id: 'search', label: 'Global Search', icon: Search },
-  ];
+    } catch (error: unknown) {
+      let errorMessage = "An unexpected error occurred";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === "object" && error !== null && "message" in error) {
+        errorMessage = String((error as { message: unknown }).message);
+      }
+      setMessage({ type: 'error', text: errorMessage });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <main className="min-h-screen p-8 bg-slate-950 text-slate-100 font-sans">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white px-4">
+      
+      {/* ERROR ALERT */}
+      {message && (
+        <div className="fixed top-5 bg-gray-900 border border-red-800 text-red-400 px-6 py-4 rounded-lg shadow-xl z-50">
+          <p className="text-sm font-mono">Error: {message.text}</p>
+        </div>
+      )}
+
+      {/* MAIN LOGIN CARD */}
+      <div className="w-full max-w-[350px] flex flex-col gap-6">
         
-        {/* --- Header --- */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-6">
-            <div className="flex items-center gap-4">
-                <div className="p-3 bg-white rounded-lg text-black shadow-lg shadow-white/10">
-                    <Terminal size={24} strokeWidth={3} />
-                </div>
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight">Campaign Manager</h1>
-                    <div className="flex items-center gap-2 text-xs text-emerald-400 font-mono mt-1">
-                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                        SESSION ACTIVE: {currentUser.name.toUpperCase()}
-                    </div>
-                </div>
-            </div>
+        {/* TOP BOX */}
+        <div className="border border-[#363636] bg-black p-10 flex flex-col items-center">
+          
+          <h1 className="text-4xl font-serif italic mb-8 tracking-tighter">
+            Nexus<span className="text-gray-400">Campaign</span>
+          </h1>
+
+          <form onSubmit={handleLogin} className="w-full flex flex-col gap-3">
             
-            <button 
-                onClick={() => window.location.reload()} // Simple logout by reload
-                className="group flex items-center gap-2 text-sm text-slate-500 hover:text-red-400 transition-colors px-4 py-2 hover:bg-red-950/20 rounded-lg"
+            <div className="relative group">
+              <input
+                type="email"
+                placeholder="Phone number, username, or email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-[#121212] border border-[#363636] rounded-[3px] px-3 py-[9px] text-xs text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 transition-all"
+                required
+              />
+            </div>
+
+            <div className="relative group">
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-[#121212] border border-[#363636] rounded-[3px] px-3 py-[9px] text-xs text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 transition-all"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 bg-[#0095F6] hover:bg-[#1877F2] text-white font-semibold text-sm py-1.5 rounded-[8px] transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
             >
-                <LogOut size={16} className="group-hover:-translate-x-1 transition-transform"/> 
-                Sign Out
+              {loading ? "Logging in..." : "Log in"}
             </button>
+
+            <div className="flex items-center my-3 w-full">
+              <div className="h-px bg-[#363636] flex-1"></div>
+              <span className="px-4 text-[13px] text-gray-400 font-semibold uppercase">OR</span>
+              <div className="h-px bg-[#363636] flex-1"></div>
+            </div>
+
+            <button type="button" className="text-xs text-[#0095F6] hover:text-white transition-colors mt-2">
+              Forgot password?
+            </button>
+          </form>
         </div>
 
-        {/* --- Stats Grid --- */}
-        <div className="grid grid-cols-3 gap-6">
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl relative overflow-hidden group hover:border-slate-700 transition-colors">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <Database size={64} />
-                </div>
-                <div className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Total Database</div>
-                <div className="text-4xl font-black">{stats.total.toLocaleString()}</div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl relative overflow-hidden group hover:border-orange-500/30 transition-colors">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <History size={64} />
-                </div>
-                <div className="text-orange-400 text-xs font-bold uppercase tracking-widest mb-2">Used Contacts</div>
-                <div className="text-4xl font-black">{stats.used.toLocaleString()}</div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl relative overflow-hidden group hover:border-emerald-500/30 transition-colors">
-                 <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <Zap size={64} />
-                </div>
-                <div className="text-emerald-400 text-xs font-bold uppercase tracking-widest mb-2">Fresh Contacts</div>
-                <div className="text-4xl font-black">{stats.unused.toLocaleString()}</div>
-            </div>
+        {/* BOTTOM BOX */}
+        <div className="border border-[#363636] bg-black p-5 text-center">
+          <p className="text-sm text-gray-400">
+            Authorized Personnel Only. <br/>
+            <span className="text-white text-xs">Contact Admin for access.</span>
+          </p>
         </div>
 
-        {/* --- Module Navigation --- */}
-        <div>
-            <div className="flex flex-wrap gap-2 mb-6 bg-slate-900 p-1.5 rounded-xl w-fit border border-slate-800">
-                {modules.map((m) => (
-                    <button
-                        key={m.id}
-                        onClick={() => setActiveModule(m.id)}
-                        className={`px-5 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all
-                            ${activeModule === m.id 
-                                ? 'bg-white text-black shadow-lg' 
-                                : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                            }`}
-                    >
-                        <m.icon size={16} strokeWidth={activeModule === m.id ? 3 : 2} />
-                        {m.label}
-                    </button>
-                ))}
-            </div>
-
-            {/* --- Main Workspace Content --- */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 min-h-[500px] shadow-2xl">
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {activeModule === 'request' && <DataRequest onRefresh={fetchStats} />}
-                    
-                    {activeModule === 'add' && <SmartUploader onRefresh={fetchStats} />}
-                    
-                    {activeModule === 'slots' && <SlotManager onRefresh={fetchStats} />}
-                    
-                    {activeModule === 'admin' && <AdminPanel />}
-                    
-                    {activeModule === 'search' && <GlobalSearch />}
-                </div>
-            </div>
+        {/* FOOTER */}
+        <div className="text-center mt-2">
+          <p className="text-[11px] text-gray-500 uppercase tracking-wider">
+            Powered by TapInfi
+          </p>
         </div>
-
       </div>
-    </main>
+    </div>
   );
 }
